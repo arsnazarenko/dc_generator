@@ -3,7 +3,8 @@ FROM rust:1.91.1-alpine AS builder
 WORKDIR /ws
 
 RUN rustup target add x86_64-unknown-linux-musl
-RUN apk add g++ libc-dev cmake make
+RUN apk add musl-dev
+# RUN apk add g++ libc-dev cmake make
 
 COPY Cargo.toml Cargo.lock ./
 COPY src src

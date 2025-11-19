@@ -12,7 +12,6 @@ A real-time traffic generator for Kafka that simulates server metrics in a data 
 
 ### Local Build
 
-1. Install rust, cmake, and libc
 2. Clone the repository and navigate to the project directory
 3. Build the project:
    ```bash
@@ -73,11 +72,9 @@ dc-generator kafka --topic my_metrics --address localhost:9092 --timeout 200 --z
 
 ## Dependencies
 
-- librdkafka: Kafka client library
+- samsa: Kafka client library
 - clap: Command line argument parser
 - tokio: Asynchronous runtime
 - uuid: UUID generation
 - serde/serde_json: JSON serialization
 - rand: Random number generation
-
-

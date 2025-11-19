@@ -57,6 +57,7 @@ services:
       KAFKA_ADDRESS: kafka:9092
       TOPIC: dc_metrics
       TIMEOUT: 500
+    restart: always
 
 volumes:
   kafka_volume:

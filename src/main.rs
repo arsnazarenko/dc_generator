@@ -1,14 +1,13 @@
 use clap::{Parser, Subcommand};
-use rdkafka::config::ClientConfig;
-use rdkafka::producer::FutureProducer;
+use samsa::prelude::TcpConnection;
 use std::time::Duration;
 use tokio::time;
 
 mod dc_metrics;
 
 #[derive(Parser)]
-#[command(name = "dc-generator")]
-#[command(about = "Real-time traffic generator for Kafka")]
+#[command(name = "dc-generator-native")]
+#[command(about = "Real-time traffic generator for Kafka (native Rust)")]
 struct Args {
     #[command(subcommand)]
     command: Commands,
@@ -36,7 +35,7 @@ enum Commands {
         #[arg(short, long, default_value = "dc_metrics")]
         topic: String,
 
-        /// Kafka host
+        /// Kafka address
         #[arg(short, long, default_value = "127.0.0.1:9092")]
         address: String,
 
@@ -73,7 +72,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             zones,
             servers_per_zone,
         } => {
-            kafka_mode(timeout, &topic, &address, zones, servers_per_zone).await?;
+            kafka_mode(timeout, &topic, &address, zones, servers_per_zone)
+                .await
+                .map_err(|e| {
+                    std::io::Error::other(format!("Kafka client error: {}", e.to_string()))
+                })?;
         }
     }
 
@@ -102,31 +105,49 @@ async fn kafka_mode(
     address: &str,
     zones: usize,
     servers_per_zone: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let servers = address;
-    let producer: FutureProducer = ClientConfig::new()
-        .set("bootstrap.servers", servers)
-        .create()?;
-    println!("Connected to kafka instance on {}", address);
-    let topic = topic.to_string();
+) -> samsa::prelude::Result<()> {
+    let (host, port_str) = address
+        .split_once(':')
+        .expect("Address of kafka must be in format {host:port}");
+
+    let host: String = host.to_string();
+    let port: u16 = port_str.parse().unwrap();
+    let bootstrap_addrs = vec![samsa::prelude::BrokerAddress {
+        host: host.into(),
+        port,
+    }];
+    let producer = samsa::prelude::ProducerBuilder::<TcpConnection>::new(
+        bootstrap_addrs,
+        vec![topic.to_string()],
+    )
+    .await?
+    .build()
+    .await;
+
+    println!("Producer connected to kafka on address {}", address);
+    let producer = std::sync::Arc::new(producer);
+    let shared_topic = std::sync::Arc::new(topic.to_string());
     let mut handles = vec![];
 
     for zone_num in 0..zones {
         let zone = format!("zone-{}", (b'A' + zone_num as u8) as char);
-        let mut metrics_gen = dc_metrics::ServerMetricsGenerator::new(zone, servers_per_zone);
-
-        let topic_clone = topic.clone();
-        let producer_clone = producer.clone();
+        let producer = producer.clone();
+        let topic_cloned = shared_topic.clone();
 
         let handle = tokio::spawn(async move {
+            let mut metrics_gen = dc_metrics::ServerMetricsGenerator::new(zone, servers_per_zone);
             let mut interval = time::interval(Duration::from_millis(timeout));
             loop {
                 interval.tick().await;
                 let metric = metrics_gen.next().unwrap();
-                let record = rdkafka::producer::FutureRecord::to(&topic_clone)
-                    .payload(&metric.message)
-                    .key(&metric.host_id);
-                let _ = producer_clone.send(record, Duration::from_millis(0)).await;
+                let message = samsa::prelude::ProduceMessage {
+                    topic: topic_cloned.to_string(),
+                    partition_id: 0,
+                    key: Some(metric.message.into()),
+                    value: Some(metric.host_id.into()),
+                    headers: vec![],
+                };
+                producer.produce(message).await;
             }
         });
         handles.push(handle);
