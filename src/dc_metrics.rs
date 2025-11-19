@@ -76,7 +76,9 @@ impl Iterator for ServerMetricsGenerator {
         let metric_index = rng.gen_range(0..self.metrics.len());
         let server_in_zone = host_index + 1;
         let zone = self.zone.clone();
-        let host_id = format!("srv-{:02}-rack-{:02}", server_in_zone, 1);
+        let servers_per_rack = 30;
+        let rack = ((server_in_zone - 1) / servers_per_rack) + 1;
+        let host_id = format!("srv-{:02}-rack-{:02}", server_in_zone, rack);
         let metric = &self.metrics[metric_index];
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)

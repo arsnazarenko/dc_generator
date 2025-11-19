@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             zones,
             servers_per_zone,
         } => {
-            stdout_mode(timeout, zones, servers_per_zone).await;
+            stdout_mode(timeout, zones, servers_per_zone);
         }
         Commands::Kafka {
             topic,
@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn stdout_mode(timeout: u64, zones: usize, servers_per_zone: usize) {
+fn stdout_mode(timeout: u64, zones: usize, servers_per_zone: usize) {
     let gen_iterator = (0..zones)
         .into_iter()
         .map(|zone_num| {
@@ -92,7 +92,7 @@ async fn stdout_mode(timeout: u64, zones: usize, servers_per_zone: usize) {
     for mut zone_gen in gen_iterator {
         let metric = zone_gen.next().unwrap();
         println!("{}", metric.message);
-        time::sleep(Duration::from_millis(timeout)).await;
+        std::thread::sleep(Duration::from_millis(timeout));
     }
 }
 
@@ -107,7 +107,7 @@ async fn kafka_mode(
     let producer: FutureProducer = ClientConfig::new()
         .set("bootstrap.servers", servers)
         .create()?;
-
+    println!("Connected to kafka instance on {}", address);
     let topic = topic.to_string();
     let mut handles = vec![];
 
