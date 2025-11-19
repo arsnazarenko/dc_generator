@@ -1,82 +1,83 @@
-# Задание
+# DC Generator
 
-# Выполнение
-# Лабораторная работа 1
-## Предметная область
-Мониторинг серверов в дата-центре.
+A real-time traffic generator for Kafka that simulates server metrics in a data center environment. It generates metrics such as CPU usage, memory usage, disk I/O, network traffic, and CPU temperature for multiple servers across different zones.
 
----
+## Features
 
-## 1. Формат сообщения, отправляемого producer-ом
+- Generates realistic server metrics with random variations and occasional overloads/failures
+- Configurable number of zones and servers per zone
+- Asynchronous I/O
 
-| Поле        | Тип              | Описание                                                                                                   |
-| ----------- | ---------------- | ---------------------------------------------------------------------------------------------------------- |
-| `eventId`   | `UUID`           | Уникальный идентификатор записи (для дедупликации).                                                        |
-| `hostId`    | `String`         | Идентификатор сервера (например `srv-12-rack-03`).                                                         |
-| `zone`      | `String`         | Логическая зона дата-центра (`zone-A`, `zone-B` …).                                                        |
-| `timestamp` | `long` (ms, UTC) | Время измерения (event-time).                                                                              |
-| `metric`    | `String` (enum)  | Тип измерения: `CPU_USAGE`, `MEM_USAGE`, `DISK_IO_READ`, `DISK_IO_WRITE`, `NET_IN`, `NET_OUT`, `CPU_TEMP`. |
-| `value`     | `double`         | Значение метрики.                                                                                          |
-| `unit`      | `String`         | Единицы измерения (`%`, `MB/s`, `°C`).                                                                     |
-| `tags`      | `Object` (опц.)  | Дополнительные атрибуты (может быть пустым).                                                               |
+## Build and Run
 
-*Все сообщения публикуются в один топик `dc.metrics` с партиционированием по `hostId`.*
+### Local Build
 
----
+1. Install rust, cmake, and libc
+2. Clone the repository and navigate to the project directory
+3. Build the project:
+   ```bash
+   cargo build --release
+   ```
 
-## 2. Ожидаемые результаты (получаются только из `dc.metrics`)
+### Local Run
 
-| №   | Результат                                                                                                                                                  | Краткое описание реализации в Flink                                                                        |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| 1   | **Текущий статус хоста** – средние значения каждой метрики за последние 5 сек (обновление каждый 5 сек).                                                   | `KeyBy(hostId) → TumblingEventTimeWindow(5 s) → Aggregate (sum / count → avg)`.                            |
-| 2   | **SLA-compliance per-host** – % времени, когда метрика превышает порог (CPU > 85 %, MEM > 90 %, DISK IO > 80 %) за скользящие 5-минутные окна (шаг 1 мин). | `KeyBy(hostId) → SlidingEventTimeWindow(5 min,1 min) → ProcessWindowFunction (подсчёт                      |
-| 3   | **Агрегированная нагрузка по зоне** – суммарный CPU % и средняя температура за 1 мин.                                                                      | `KeyBy(zone) → TumblingEventTimeWindow(1 min) → Reduce/Aggregate`.                                         |
-| 4   | **Тревоги в реальном времени** – `CPU_USAGE > 95 %` **или** `CPU_TEMP > 85 °C`. При срабатывании сообщение помещается в топик `dc.alerts`.                 | `ProcessFunction` без окна, проверка порога, `collector.collect(alert)`.                                   |
-| 5   | **Часовой тренд CPU %** – суммарный CPU % за каждый час (используется для определения энергопотребления).                                                  | `KeyBy(hostId) → TumblingEventTimeWindow(1 h) → Sum`.                                                      |
-| 6   | **Дневные/недельные отчёты** – средние значения всех метрик, количество тревог, распределение нагрузки по часам.                                           | `AllWindowFunction` (daily tumbling) → формирование JSON-отчёта, запись в `dc.reports` (или внешний sink). |
+Run the generator in stdout mode:
+```bash
+./target/release/dc-generator stdout [OPTIONS]
+```
 
----
+Run the generator in Kafka mode (requires a running Kafka instance):
+```bash
+./target/release/dc-generator kafka [OPTIONS]
+```
 
-## 3. Отношение к запаздыванию обработки
+### Docker Build and Run
 
-| Тип результата | Требуемая максимальная задержка | Приоритет |
-|----------------|--------------------------------|-----------|
-| Тревога (алерт) | **≤ 2 сек** | Критически важно – мгновенное реагирование. |
-| Текущий статус (дашборд) | **≤ 1 сек** | Высокая важность – пользователь ожидает «живую» карту. |
-| SLA-compliance | **≤ 5 сек** | Средняя важность – небольшая задержка допустима. |
-| Отчёты / тренды | без ограничения (можно выполнять ночью) | Низкая важность. |
+1. Ensure you have Docker and Docker Compose installed
+2. Build and run with Docker Compose:
+   ```bash
+   docker-compose up --build
+   ```
 
-Для критичных потоков будет использоваться **event-time** + **watermarks** (отставание ≈ 500 ms) и **checkpointing** Flink каждые 1 сек, что обеспечивает практически «нулевую» задержку.
+This will start Kafka, Kafka UI, and the DC generator automatically.
 
----
+## Command Line Flags
 
-## 4. Потеря данных и требуемая семантика
+### Stdout Command
 
-| Данные                                  | Критичность                                                                                  | Выбранная семантика в Kafka                                                                                                      |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Метрики (каждое событие)                | Средняя-высокая (нужны для SLA, но отдельные пропущенные измерения могут быть восстановлены) | **at-least-once** – допускаются дубликаты, дедупликация реализуется в Flink по `eventId`.                                        |
-| Алёрты (события пороговых срабатываний) | **Критичная** – пропуск алёрта равен пропуску инцидента                                      | **exactly-once** – продюсер настроен `enable.idempotence=true` и использует транзакции (`transactional.id=dc-metrics-producer`). |
-| Отчёты / тренды                         | Низкая – могут быть пересчитаны                                                              | **at-least-once**.                                                                                                               |
+Outputs generated metrics to stdout.
 
-Тема - мониторинг серверов в дата центре.
-Поток данных формируется серверами в дата-центре. Среди метрик, которые собираются на каждом сервере: Использование CPU, памяти, объем входящего и исходящего сетевого трафика, нагрузка на диск, температура CPU и т. д. Каждое сообщение будет предоставлять данные о метрике в конкретный момент времени, по аналогии с реальными интрументами мониторинга, например как collectd.
+- `-t, --timeout <TIMEOUT>`: Timeout between messages in milliseconds (default: 500)
+- `--zones <ZONES>`: Number of zones in data center (default: 4)
+- `--servers-per-zone <SERVERS_PER_ZONE>`: Number of servers per zone (default: 10)
 
-Результатом обработки  могут быть такие данные, как:
-* Текущий статус хоста: средние значениях каждой метрики для каждого севера в DC, обновляем каждую минуту.
-* SLA-compliance для каждой машины. Т. е. какой процент времени конкретная метрика превышала заданное пороговое значение. Собирается для показаний метрики во временном промежутке, например 5 минут. 
-* Агрегированная нагрузка по зоне: Это имеет смысл, так как  зона имеет свои автономные системы электропитания, охлаждения и сетевого подключения.
-* Тревоги в реальном времени. При превыщении threshold'ов, сразу регировать на это отправкой алерта в отдельный топик.
-* Часовой  тренд CPU – средний процент загрузки CPU за каждый полный час. По часовым трендам видно, в какие часы нагрузка самая высокая, зная энергопотребление серверов и тариф электроэнергии, можно расчитывать стоимость работы дата-центра за каждый час.
- 
-Отношение к запаздыванию:
-Для алертов - критически важно, требуется мгновенная реакция
-Для текущего статуса серверов - довольно критично, так как на дашбордах пользователю необходимо показывать реальную картину
-SLA-compliance, тренды  - не очень критично.
+Example:
+```bash
+dc-generator stdout --timeout 1000 --zones 2 --servers-per-zone 5
+```
 
-Потеря данных и требуемая семантика:
- 
-* Алерты - очень критично, т. к. пропуск алёрта равен пропуску инцидента, exactly-once
-* Текущий статус серверов (средние значения метрик) - допускаются дубликаты, at-least-once
-* SLA-compliance, тренды - не критично, at-least-once
+### Kafka Command
 
-Для генерации потоковых данных планируется реализовать собственный генератор.
+Sends generated metrics to a Kafka topic.
+
+- `-t, --topic <TOPIC>`: Kafka topic name (default: "dc_metrics")
+- `-a, --address <ADDRESS>`: Kafka host (default: "127.0.0.1:9092")
+- `--timeout <TIMEOUT>`: Timeout between messages in milliseconds (default: 500)
+- `--zones <ZONES>`: Number of zones in data center (default: 4)
+- `--servers-per-zone <SERVERS_PER_ZONE>`: Number of servers per zone (default: 10)
+
+Example:
+```bash
+dc-generator kafka --topic my_metrics --address localhost:9092 --timeout 200 --zones 3 --servers-per-zone 8
+```
+
+## Dependencies
+
+- librdkafka: Kafka client library
+- clap: Command line argument parser
+- tokio: Asynchronous runtime
+- uuid: UUID generation
+- serde/serde_json: JSON serialization
+- rand: Random number generation
+
+
