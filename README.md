@@ -48,7 +48,7 @@ Outputs generated metrics to stdout.
 
 - `-t, --timeout <TIMEOUT>`: Timeout between messages in milliseconds (default: 500)
 - `--zones <ZONES>`: Number of zones in data center (default: 4)
-- `--servers-per-zone <SERVERS_PER_ZONE>`: Number of servers per zone (default: 10)
+- `--servers-per-zone <SERVERS_PER_ZONE>`: Number of servers per zone (default: 100)
 
 Example:
 ```bash
@@ -59,11 +59,11 @@ dc-generator --mode stdout --timeout 1000 --zones 2 --servers-per-zone 5
 
 Sends generated metrics to a Kafka topic.
 
-- `-t, --topic <TOPIC>`: Kafka topic name (default: "dc_metrics")
-- `-a, --address <ADDRESS>`: Kafka host (default: "127.0.0.1:9092")
+- `-t, --topic <TOPIC>`: Kafka topic name
+- `-a, --address <ADDRESS>`: Kafka host
 - `--timeout <TIMEOUT>`: Timeout between messages in milliseconds (default: 500)
 - `--zones <ZONES>`: Number of zones in data center (default: 4)
-- `--servers-per-zone <SERVERS_PER_ZONE>`: Number of servers per zone (default: 10)
+- `--servers-per-zone <SERVERS_PER_ZONE>`: Number of servers per zone (default: 100)
 
 Example:
 ```bash
