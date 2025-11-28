@@ -105,7 +105,8 @@ impl Iterator for ServerMetricsGenerator {
 
         let initial_value = match metric.as_str() {
             "CPU_USAGE" | "MEM_USAGE" => 50.0,
-            "DISK_IO_READ" | "DISK_IO_WRITE" | "NET_IN" | "NET_OUT" => 100.0,
+            "DISK_IO_READ" | "DISK_IO_WRITE" => 500.0, // SSD baseline
+            "NET_IN" | "NET_OUT" => 300.0,             // Multi-gigabit baseline
             "CPU_TEMP" => 60.0,
             _ => 0.0,
         };
@@ -123,7 +124,19 @@ impl Iterator for ServerMetricsGenerator {
             }
             if rng.gen_bool(0.05) {
                 host_state.status = Status::Overloaded;
-                val *= rng.gen_range(1.2..1.5);
+                // Higher overload multiplier for network and disk metrics
+                let multiplier = match metric.as_str() {
+                    "DISK_IO_READ" | "DISK_IO_WRITE" | "NET_IN" | "NET_OUT" => {
+                        rng.gen_range(1.2..2.5)
+                    }
+                    _ => rng.gen_range(1.2..1.5),
+                };
+                val *= multiplier;
+                // Clamp CPU/MEM to 100% after overload
+                match metric.as_str() {
+                    "CPU_USAGE" | "MEM_USAGE" => val = val.min(100.0),
+                    _ => {}
+                }
             }
             if rng.gen_bool(0.01) {
                 host_state.failure_until = Some(timestamp + rng.gen_range(10000..30000));
