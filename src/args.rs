@@ -16,6 +16,14 @@ pub struct Args {
     #[arg(long, required_if_eq("mode", "kafka"))]
     pub address: Option<String>,
 
+    /// Number of topic partitions
+    #[arg(long, required_if_eq("mode", "kafka"))]
+    pub partitions: Option<usize>,
+
+    /// Number of topic replicas
+    #[arg(long, required_if_eq("mode", "kafka"))]
+    pub replicas: Option<usize>,
+
     /// Timeout between messages in milliseconds
     #[arg(short, long, default_value_t = 500)]
     pub timeout: u64,

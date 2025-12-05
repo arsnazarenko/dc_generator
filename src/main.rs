@@ -1,9 +1,19 @@
 use samsa::prelude::TcpConnection;
-use std::{time::Duration, vec};
+use std::{
+    hash::{Hash, Hasher},
+    time::Duration,
+    vec,
+};
 use tokio::time;
 
 mod args;
 mod dc_metrics;
+
+const CLIENT_ID: &str = "Data center metrics producer";
+const CORRELATION_ID: i32 = 1;
+// const DEFAULT_REPLICATION_FACTOR: i16 = 3;
+// const DEFAULT_PARTITIONS_NUM: u32 = 3;
+// const DEFAULT_TOPIC_NAME: &str = "dc_metrics";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,13 +25,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         args::Mode::Kafka => {
             let topic = args.topic.unwrap();
+            let partitions = args.partitions.unwrap();
+            let replicas = args.replicas.unwrap();
             let brokers = args::parse_kafka_brokers(&args.address.unwrap())?;
             kafka_mode(
-                args.timeout,
-                &topic,
                 brokers,
+                &topic,
+                partitions,
+                replicas,
                 args.zones,
                 args.servers_per_zone,
+                args.timeout,
             )
             .await
             .map_err(|e| std::io::Error::other(format!("Kafka client error: {}", e.to_string())))?;
@@ -48,19 +62,33 @@ fn stdout_mode(timeout: u64, zones: usize, servers_per_zone: usize) {
 }
 
 async fn kafka_mode(
-    timeout: u64,
-    topic: &str,
     brokers: Vec<samsa::prelude::BrokerAddress>,
+    topic: &str,
+    partitions: usize,
+    replicas: usize,
     zones: usize,
     servers_per_zone: usize,
+    timeout: u64,
 ) -> samsa::prelude::Result<()> {
-    let producer = samsa::prelude::ProducerBuilder::<TcpConnection>::new(
-        brokers.clone(),
-        vec![topic.to_string()],
+    let connection = TcpConnection::new_(brokers.clone()).await?;
+
+    let _ = create_topics_manually(
+        connection,
+        CORRELATION_ID,
+        CLIENT_ID,
+        vec![((topic, replicas as i16), partitions as i32)]
+            .into_iter()
+            .collect(),
     )
-    .await?
-    .build()
-    .await;
+    .await?;
+
+    let producer =
+        samsa::prelude::ProducerBuilder::<TcpConnection>::new(brokers.clone(), vec![topic.into()])
+            .await?
+            .required_acks(1)
+            .clone()
+            .build()
+            .await;
 
     println!(
         "Producer connected to kafka: {:?}",
@@ -89,7 +117,7 @@ async fn kafka_mode(
                 let metric = metrics_gen.next().unwrap();
                 let message = samsa::prelude::ProduceMessage {
                     topic: topic_cloned.to_string(),
-                    partition_id: 0,
+                    partition_id: get_partition(&metric.host_id, partitions) as i32,
                     key: Some(metric.host_id.into()),
                     value: Some(metric.message.into()),
                     headers: vec![],
@@ -103,4 +131,31 @@ async fn kafka_mode(
         let _ = handle.await;
     }
     Ok(())
+}
+
+fn get_partition<T: Hash>(key: &T, partitions_num: usize) -> usize {
+    let mut hasher = std::hash::DefaultHasher::default();
+    key.hash(&mut hasher);
+    let h = hasher.finish() as usize;
+    h % partitions_num
+}
+
+pub async fn create_topics_manually(
+    mut conn: impl samsa::prelude::BrokerConnection,
+    correlation_id: i32,
+    client_id: &str,
+    topics_with_partition_count: std::collections::HashMap<(&str, i16), i32>,
+) -> samsa::prelude::Result<samsa::prelude::protocol::CreateTopicsResponse> {
+    let mut create_topics =
+        samsa::prelude::protocol::CreateTopicsRequest::new(correlation_id, client_id, 4000, false)?;
+
+    for ((topic_name, replication_factor), num_partitions) in topics_with_partition_count {
+        create_topics.add(topic_name, num_partitions, replication_factor);
+    }
+
+    conn.send_request(&create_topics).await?;
+
+    let create_topics_response = conn.receive_response().await?;
+
+    samsa::prelude::protocol::CreateTopicsResponse::try_from(create_topics_response.freeze())
 }
