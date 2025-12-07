@@ -22,12 +22,12 @@ A real-time traffic generator for Kafka that simulates server metrics in a data 
 
 Run the generator in stdout mode:
 ```bash
-./target/release/dc-generator --mode stdout [OPTIONS]
+./target/release/dc-generator stdout [OPTIONS]
 ```
 
 Run the generator in Kafka mode (requires a running Kafka instance):
 ```bash
-./target/release/dc-generator --mode kafka [OPTIONS]
+./target/release/dc-generator kafka [OPTIONS]
 ```
 
 ### Docker Build and Run
@@ -39,6 +39,7 @@ Run the generator in Kafka mode (requires a running Kafka instance):
    ```
 
 This will start Kafka, Kafka UI, and the DC generator automatically.
+Kafka UI available on http://localhost:8080
 
 ## Command Line Flags
 
@@ -48,26 +49,28 @@ Outputs generated metrics to stdout.
 
 - `-t, --timeout <TIMEOUT>`: Timeout between messages in milliseconds (default: 500)
 - `--zones <ZONES>`: Number of zones in data center (default: 4)
-- `--servers-per-zone <SERVERS_PER_ZONE>`: Number of servers per zone (default: 100)
+- `--servers-per-zone <SERVERS_PER_ZONE>`: Number of servers per zone (default: 80)
 
 Example:
 ```bash
-dc-generator --mode stdout --timeout 1000 --zones 2 --servers-per-zone 5
+dc-generator stdout --timeout 1000 --zones 2 --servers-per-zone 5
 ```
 
 ### Kafka Command
 
 Sends generated metrics to a Kafka topic.
 
-- `-t, --topic <TOPIC>`: Kafka topic name
-- `-a, --address <ADDRESS>`: Kafka host
-- `--timeout <TIMEOUT>`: Timeout between messages in milliseconds (default: 500)
+- `--brokers <BROKERS>`: Kafka broker addresses (comma separated)
+- `--topic <TOPIC>`: Kafka topic name (default: dc_metrics)
+- `--partitions <PARTITIONS>`: Number of topic partitions (default: 3)
+- `--replicas <REPLICAS>`: Number of topic replicas (default: 3)
+- `-t, --timeout <TIMEOUT>`: Timeout between messages in milliseconds (default: 500)
 - `--zones <ZONES>`: Number of zones in data center (default: 4)
-- `--servers-per-zone <SERVERS_PER_ZONE>`: Number of servers per zone (default: 100)
+- `--servers-per-zone <SERVERS_PER_ZONE>`: Number of servers per zone (default: 80)
 
 Example:
 ```bash
-dc-generator --mode kafka --topic my_metrics --address localhost:9092 --timeout 200 --zones 3 --servers-per-zone 8
+dc-generator kafka --brokers localhost:9092 --topic my_metrics --timeout 200 --zones 3 --servers-per-zone 8
 ```
 
 Example of generated metrics:

@@ -13,4 +13,4 @@ RUN cargo build --target x86_64-unknown-linux-musl --release
 FROM alpine:latest
 COPY --from=builder /ws/target/x86_64-unknown-linux-musl/release/dc-generator /usr/local/bin/dc-generator
 
-CMD dc-generator kafka --brokers "$KAFKA_ADDRESS" --topic "$TOPIC" --timeout "$TIMEOUT" --partitions "$PARTITIONS" --replicas "$REPLICAS"
+CMD dc-generator kafka --brokers "$KAFKA_ADDRESS" --topic "$TOPIC" --timeout "$TIMEOUT" --partitions "$PARTITIONS" --replicas "$REPLICAS" --zones 4 --servers-per-zone 10
