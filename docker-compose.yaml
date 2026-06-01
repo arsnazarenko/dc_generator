@@ -117,7 +117,7 @@ services:
       TOPIC: dc_metrics
       PARTITIONS: 3
       REPLICAS: 3
-      TIMEOUT: 500
+      RPS: 10
     restart: always
 
 volumes:
