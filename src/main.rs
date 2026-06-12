@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn stdout_mode(rps: u64, workers: u8, servers_per_zone: u16, duration: Option<Duration>) {
     let interval_ms = match rps > 0 {
-        true => 1000 / rps,
+        true => (1000 / rps).max(1),
         false => 500,
     };
 
@@ -113,8 +113,7 @@ async fn kafka_mode(
     .await?;
 
     let interval_ms = if rps > 0 {
-        // SAFETY: checked above
-        1000_u64.checked_div(rps).unwrap()
+        1000_u64.checked_div(rps).map(|v| v.max(1)).unwrap()
     } else {
         500
     };
