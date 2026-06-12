@@ -1,6 +1,8 @@
 use samsa::prelude::TcpConnection;
 use std::{
     hash::{Hash, Hasher},
+    sync::atomic::{AtomicU64, Ordering},
+    sync::Arc,
     time::Duration,
     vec,
 };
@@ -141,7 +143,8 @@ async fn kafka_mode(
             .collect::<Vec<_>>()
     );
 
-    let shared_topic = std::sync::Arc::new(topic.to_string());
+    let shared_topic = Arc::new(topic.to_string());
+    let total_count = Arc::new(AtomicU64::new(0));
 
     let mut handles = Vec::with_capacity(threads as usize);
 
@@ -149,6 +152,7 @@ async fn kafka_mode(
         let zone_name = format!("zone-{}", (b'A' + worker_num) as char);
         let producer = producers[(worker_num as usize) % producers.len()].clone();
         let topic_cloned = shared_topic.clone();
+        let counter = total_count.clone();
 
         let handle = tokio::spawn(async move {
             let mut metrics_gen =
@@ -165,21 +169,37 @@ async fn kafka_mode(
                     headers: vec![],
                 };
                 producer.produce(message).await;
+                counter.fetch_add(1, Ordering::Relaxed);
             }
         });
         handles.push(handle);
     }
 
+    let log_counter = total_count.clone();
+    let log_handle = tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            let count = log_counter.load(Ordering::Relaxed);
+            println!("[Kafka] Total messages sent: {}", count);
+        }
+    });
+
     if let Some(dur) = duration {
         tokio::time::sleep(dur).await;
+        log_handle.abort();
         for handle in handles {
             handle.abort();
         }
+        let total = total_count.load(Ordering::Relaxed);
+        println!("[Kafka] Finished. Total messages sent: {}", total);
     } else {
         for handle in handles {
             let _ = handle.await;
         }
+        log_handle.abort();
     }
+
     Ok(())
 }
 
